@@ -1,5 +1,6 @@
 import requests
 import re
+import numpy as np
 from os import path, makedirs, listdir
 from bs4 import BeautifulSoup
 from zipfile import ZipFile
@@ -53,11 +54,40 @@ class DataDownloader:
             "KVK": "19.csv",
             "XXX": "CHODCI.csv"
         }
-        self.csv_headers = ["p1", "p36", "p37", "p2a", "weekday(p2a)", "p2b", "p6", "p7", "p8", "p9", "p10", "p11",
-                            "p12", "p13a", "p13b", "p13c", "p14", "p15", "p16", "p17", "p18", "p19", "p20", "p21",
-                            "p22", "p23", "p24", "p27", "p28", "p34", "p35", "p39", "p44", "p45a", "p47", "p48a", "p49",
-                            "p50a", "p50b", "p51", "p52", "p53", "p55a", "p57", "p58", "a", "b", "d", "e", "f", "g",
-                            "h", "i", "j", "k", "l", "n", "o", "p", "q", "r", "s", "t", "p5a"]
+        self.csv_headers = [{"label": "p1", "d_type": "<U12"}, {"label": "p36", "d_type": "i1"},
+                            {"label": "p37", "d_type": "i1"}, {"label": "p2a", "d_type": "<U10"},
+                            {"label": "weekday(p2a)", "d_type": "i1"}, {"label": "p2b", "d_type": "<U4"},
+                            {"label": "p6", "d_type": "i1"}, {"label": "p7", "d_type": "i1"},
+                            {"label": "p8", "d_type": "i1"}, {"label": "p9", "d_type": "i1"},
+                            {"label": "p10", "d_type": "i1"}, {"label": "p11", "d_type": "i1"},
+                            {"label": "p12", "d_type": "i2"}, {"label": "p13a", "d_type": "i1"},
+                            {"label": "p13b", "d_type": "i1"}, {"label": "p13c", "d_type": "i1"},
+                            {"label": "p14", "d_type": "i8"}, {"label": "p15", "d_type": "i1"},
+                            {"label": "p16", "d_type": "i1"}, {"label": "p17", "d_type": "i1"},
+                            {"label": "p18", "d_type": "i1"}, {"label": "p19", "d_type": "i1"},
+                            {"label": "p20", "d_type": "i1"}, {"label": "p21", "d_type": "i1"},
+                            {"label": "p22", "d_type": "i1"}, {"label": "p23", "d_type": "i1"},
+                            {"label": "p24", "d_type": "i1"}, {"label": "p27", "d_type": "i1"},
+                            {"label": "p28", "d_type": "i1"}, {"label": "p34", "d_type": "i2"},
+                            {"label": "p35", "d_type": "i1"}, {"label": "p39", "d_type": "i1"},
+                            {"label": "p44", "d_type": "i1"}, {"label": "p45a", "d_type": "i1"},
+                            {"label": "p47", "d_type": "i1"}, {"label": "p48a", "d_type": "i1"},
+                            {"label": "p49", "d_type": "i1"}, {"label": "p50a", "d_type": "i1"},
+                            {"label": "p50b", "d_type": "i1"}, {"label": "p51", "d_type": "i1"},
+                            {"label": "p52", "d_type": "i1"}, {"label": "p53", "d_type": "i1"},
+                            {"label": "p55a", "d_type": "i1"}, {"label": "p57", "d_type": "i1"},
+                            {"label": "p58", "d_type": "i1"},
+                            {"label": "a", "d_type": "i1"}, {"label": "b", "d_type": "i1"},
+                            {"label": "d", "d_type": "i1"}, {"label": "e", "d_type": "f8"},
+                            {"label": "f", "d_type": "f8"}, {"label": "g", "d_type": "i1"},
+                            {"label": "h", "d_type": "i1"}, {"label": "i", "d_type": "i1"},
+                            {"label": "j", "d_type": "i1"}, {"label": "k", "d_type": "i1"},
+                            {"label": "l", "d_type": "i1"}, {"label": "n", "d_type": "i1"},
+                            {"label": "o", "d_type": "i1"}, {"label": "p", "d_type": "i1"},
+                            {"label": "q", "d_type": "i1"}, {"label": "r", "d_type": "i1"},
+                            {"label": "s", "d_type": "i1"}, {"label": "t", "d_type": "i1"},
+                            {"label": "p5a", "d_type": "i1"},
+                            ]
 
     def __get_file_paths_from_url(self):
         """Get all dataset paths on specified url"""
@@ -112,23 +142,39 @@ class DataDownloader:
             file_name = re_name.search(file_path).group(0)
             self.__download_missing_file(file_path, file_name)
 
-    def __parse_csv_file(self, file, number_of_params):
-        rows = sum(1 for _ in file)
-        print(rows)
-        # csv_reader = reader(TextIOWrapper(file, "ISO-8859-1"), delimiter=';', quotechar='|')
+    def __parse_csv_file(self, file):
+        """Parse single csv file and return list with numpy arrays"""
+        number_of_rows = sum(1 for _ in file)
+        parsed_data = [np.empty(shape=number_of_rows, dtype=item['d_type']) for item in self.csv_headers]
+        file.seek(0)
+        csv_reader = reader(TextIOWrapper(file, "ISO-8859-1"), delimiter=';', quotechar='"')
+        for index, row in enumerate(csv_reader):
+            for index_val, value in enumerate(row):
+                try:
+                    parsed_data[index_val][index] = value
+                except ValueError:
+                    parsed_data[index_val][index] = -1
+        return parsed_data
 
     def parse_region_data(self, region):
         """Parse data for current region to tuple(list[str], list[np.ndarray])"""
         self.__download_missing_files()
         datasets = self.__get_existing_datasets()
-        length_of_headers = len(self.csv_headers)
-        print(length_of_headers, "fu")
-        parsed_data = (self.csv_headers, [])
+        parsed_data = [np.ndarray(shape=(0,), dtype=item['d_type']) for item in self.csv_headers]
         for dataset in datasets:
-            archive = ZipFile(f'{self.folder}/{dataset}', 'r')
-            try:
-                with archive.open(self.region_files[region]) as file:
-                    self.__parse_csv_file(file, length_of_headers)
-            except KeyError:
-                print('Provided region does not exists!')
-                exit(1)
+            with ZipFile(f'{self.folder}/{dataset}') as archive:
+                try:
+                    with archive.open(self.region_files[region], 'r') as file:
+                        parsed_data_to_merge = self.__parse_csv_file(file)
+                        for index, value in enumerate(parsed_data_to_merge):
+                            parsed_data[index] = np.concatenate([parsed_data[index], value])
+                except KeyError:
+                    print(f'Provided region key does not exist. {region} will be skipped.')
+        return [item['label'] for item in self.csv_headers], parsed_data
+
+    def get_list(self, regions=None):
+        if regions is None:
+            regions_parsed = [self.parse_region_data(region) for region in self.region_files]
+        else:
+            regions_parsed = [self.parse_region_data(region) for region in regions]
+        print(len(regions_parsed))
