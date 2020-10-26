@@ -6,6 +6,16 @@ from bs4 import BeautifulSoup
 from zipfile import ZipFile
 from csv import reader
 from io import TextIOWrapper
+import pickle
+import gzip
+
+
+def concat_np_data_list(prev_data, data_to_concat):
+    if prev_data is None:
+        return data_to_concat
+    for index, value in enumerate(data_to_concat):
+        prev_data[index] = np.concatenate([prev_data[index], value])
+    return prev_data
 
 
 class DataDownloader:
@@ -16,12 +26,15 @@ class DataDownloader:
         if not path.exists(folder):
             try:
                 makedirs(folder)
-            except OSError as e:
-                print(f'Could not create directory "{folder}" with error: {e}')
-                exit(1)
+            except OSError:
+                raise OSError(f'Could not create directory: {folder}')
         self.folder = folder
         self.url = url
         self.cache_filename = cache_filename
+        # add attribute for datasets that needs to be parsed
+        self.parsed_data = {}
+        self.parsed_regions = []
+        self.non_duplicate_datasets = None
         # add headers to look like browser
         self.headers = {
             'Connection': 'keep-alive',
@@ -87,14 +100,14 @@ class DataDownloader:
                             {"label": "q", "d_type": "i1"}, {"label": "r", "d_type": "i1"},
                             {"label": "s", "d_type": "i1"}, {"label": "t", "d_type": "i1"},
                             {"label": "p5a", "d_type": "i1"},
+                            {"label": "region", "d_type": "<U3"},
                             ]
 
     def __get_file_paths_from_url(self):
         """Get all dataset paths on specified url"""
         response = requests.get(self.url, headers=self.headers)
         if response.status_code != 200:
-            print(f'Could not fetch url "{self.url}"')
-            exit(1)
+            raise ConnectionError(f'Could not fetch url "{self.url}"')
 
         # get html and parse all a tags with .zip files
         response_html = response.text
@@ -107,6 +120,46 @@ class DataDownloader:
         """Get all dataset names available in cwd"""
         files_in_directory = listdir(self.folder)
         return [file for file in files_in_directory if file.endswith(".zip")]
+
+    def __get_existing_cache_files(self):
+        """Get all cache names and corresponding regions available in cwd"""
+        files_in_directory = listdir(self.folder)
+        cache_regex = re.compile(self.cache_filename.replace('{}', r'(\w*)'))
+        file_names = []
+        regions = []
+        for file in files_in_directory:
+            match = cache_regex.match(file)
+            if match:
+                file_names.append(match.group(0))
+                regions.append(match.group(1))
+        return regions, file_names
+
+    def __get_non_duplicate_datasets(self):
+        """Get non duplicate dataset names in cwd, to parse correct data"""
+        datasets = self.__get_existing_datasets()
+        years = set([re.search(r'(\d{4}).zip', dataset).group(1) for dataset in datasets])
+
+        def get_best_match(year):
+            """Find the best dataset to avoid duplicity"""
+            year_full_regex = re.compile(fr'.*[^\d\-]-?{year}.zip')
+            highest_month = 0
+            dataset_name = ''
+            month_regex = re.compile(fr'.*(\d\d)-{year}.zip')
+            for dataset in datasets:
+                if year_full_regex.match(dataset):
+                    return dataset
+                match = month_regex.search(dataset)
+                if match:
+                    month = int(match.group(1))
+                    if month > highest_month:
+                        highest_month = month
+                        dataset_name = dataset
+            if dataset_name == '':
+                raise ValueError(f'Could not find valid dataset for year {year}')
+            return dataset_name
+
+        self.non_duplicate_datasets = [get_best_match(year) for year in years]
+        return self.non_duplicate_datasets
 
     def __download_missing_files(self):
         """Detect any missing file in cwd"""
@@ -126,7 +179,7 @@ class DataDownloader:
         response = requests.get(f'{self.url}{file_path}', headers=self.headers, stream=True)
         # we check for status code before setting data
         if response.status_code != 200:
-            print(f'Could not fetch {self.url}{file_path}')
+            raise ConnectionError(f'Could not fetch {self.url}{file_path}')
         else:
             # write to output file in chunks for faster
             with open(f'{self.folder}/{file_name}', 'wb+') as fd:
@@ -159,22 +212,56 @@ class DataDownloader:
     def parse_region_data(self, region):
         """Parse data for current region to tuple(list[str], list[np.ndarray])"""
         self.__download_missing_files()
-        datasets = self.__get_existing_datasets()
+        datasets = self.non_duplicate_datasets or self.__get_non_duplicate_datasets()
         parsed_data = [np.ndarray(shape=(0,), dtype=item['d_type']) for item in self.csv_headers]
         for dataset in datasets:
             with ZipFile(f'{self.folder}/{dataset}') as archive:
                 try:
                     with archive.open(self.region_files[region], 'r') as file:
                         parsed_data_to_merge = self.__parse_csv_file(file)
-                        for index, value in enumerate(parsed_data_to_merge):
-                            parsed_data[index] = np.concatenate([parsed_data[index], value])
+                        parsed_data_to_merge[-1][:] = region
+                        parsed_data = concat_np_data_list(parsed_data, parsed_data_to_merge)
                 except KeyError:
-                    print(f'Provided region key does not exist. {region} will be skipped.')
+                    raise KeyError(f'Provided region key: {region}, does not exist.')
         return [item['label'] for item in self.csv_headers], parsed_data
 
+    def __get_list_from_parsed_data(self, regions):
+        if len(regions) > 0:
+
+            labels, _ = self.parsed_data[regions[0]]
+            values = None
+            for region in regions:
+                values = concat_np_data_list(values, self.parsed_data[region][1])
+            return labels, values
+        return [], []
+
+    def __region_processed(self, region, data):
+        self.parsed_data[region] = data
+        self.parsed_regions.append(region)
+
+    def __process_region(self, region):
+        data = self.parse_region_data(region)
+        with gzip.open(f'{self.folder}/{self.cache_filename.replace("{}", region)}', 'wb') as f:
+            pickle.dump(data, f)
+            self.__region_processed(region, data)
+
     def get_list(self, regions=None):
+        existing_regions = self.region_files
         if regions is None:
-            regions_parsed = [self.parse_region_data(region) for region in self.region_files]
-        else:
-            regions_parsed = [self.parse_region_data(region) for region in regions]
-        print(len(regions_parsed))
+            regions = list(existing_regions.keys())
+        if type(regions) != list:
+            raise ValueError('Provided regions are not list')
+        non_parsed_regions = [region for region in regions if region not in self.parsed_regions]
+        cached_regions, cached_region_files = self.__get_existing_cache_files()
+
+        for region in non_parsed_regions:
+            if region not in existing_regions:
+                raise ValueError(f'Provided region {region} does not exist')
+            if region in cached_regions:
+                with gzip.open(f'{self.folder}/{cached_region_files[cached_regions.index(region)]}',
+                               'rb') as cache_file:
+                    data = pickle.load(cache_file)
+                    self.__region_processed(region, data)
+            else:
+                self.__process_region(region)
+        return self.__get_list_from_parsed_data(regions)

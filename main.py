@@ -1,9 +1,9 @@
 from download import DataDownloader
 
 import time
+
 start = time.time()
 downloader = DataDownloader()
-downloader.parse_region_data("PHA")
+downloader.get_list()
 end = time.time()
 print(end - start)
-# downloader.get_list()
