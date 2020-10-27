@@ -10,33 +10,37 @@ import pickle
 import gzip
 
 
-def concat_np_data_list(prev_data, data_to_concat):
-    """Concat two arrays of type list[np.ndarray]"""
-    if prev_data is None:
-        return data_to_concat
-    for index, value in enumerate(data_to_concat):
-        prev_data[index] = np.concatenate([prev_data[index], value])
-    return prev_data
-
-
 class DataDownloader:
     """Class for fetching and parsing data about car accidents in Czech republic"""
 
     def __init__(self, url="https://ehw.fit.vutbr.cz/izv/", folder="data", cache_filename="data_{}.pkl.gz"):
         """Init method checks if directory exists in other case, tra to make it"""
+        # check for valid paths
+        if re.match(r'[^-_.A-Za-z0-9/]', folder):
+            raise OSError(f'Provided folder path is not posixly correct relative path: {cache_filename}')
+        if re.match(r'[^-_.A-Za-z0-9{}]', cache_filename):
+            raise OSError(f'Provided cache_filename is not posixly correct : {cache_filename}')
         if not path.exists(folder):
             try:
                 makedirs(folder)
             except OSError:
                 raise OSError(f'Could not create directory: {folder}')
         self.folder = folder
-        self.url = url
-        self.cache_filename = cache_filename
+
+        # check if cache_filename is correct
+        if re.fullmatch(r'[^{}/]*{}[^{}/]*\.pkl\.gz', cache_filename):
+            self.cache_filename = cache_filename
+        else:
+            raise ValueError(
+                f'Provided cache file_name could not be formatted, or file type is not .pkl.gz: {cache_filename} ')
+
         # add attribute for datasets that needs to be parsed
         self.parsed_data = {}
         self.parsed_regions = []
         self.non_duplicate_datasets = None
+
         # add headers to look like browser
+        self.url = url
         self.headers = {
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
@@ -51,6 +55,8 @@ class DataDownloader:
             'Referer': 'https://ehw.fit.vutbr.cz/izv/',
             'Accept-Language': 'cs-CZ,cs;q=0.9,en;q=0.8',
         }
+
+        # regions settings and csv headers
         self.region_files = {
             "PHA": "00.csv",
             "STC": "01.csv",
@@ -66,10 +72,9 @@ class DataDownloader:
             "PAK": "17.csv",
             "LBK": "18.csv",
             "KVK": "19.csv",
-            "XXX": "CHODCI.csv"
         }
         self.csv_headers = [{"label": "p1", "d_type": "<U12"}, {"label": "p36", "d_type": "i1"},
-                            {"label": "p37", "d_type": "i1"}, {"label": "p2a", "d_type": "<U10"},
+                            {"label": "p37", "d_type": "i1"}, {"label": "p2a", "d_type": "datetime64[D]"},
                             {"label": "weekday(p2a)", "d_type": "i1"}, {"label": "p2b", "d_type": "<U4"},
                             {"label": "p6", "d_type": "i1"}, {"label": "p7", "d_type": "i1"},
                             {"label": "p8", "d_type": "i1"}, {"label": "p9", "d_type": "i1"},
@@ -104,6 +109,35 @@ class DataDownloader:
                             {"label": "region", "d_type": "<U3"},
                             ]
 
+    @staticmethod
+    def concat_np_data_list(prev_data, data_to_concat):
+        """Concat two arrays of type list[np.ndarray]"""
+        if prev_data is None:
+            return data_to_concat
+        for index, value in enumerate(data_to_concat):
+            prev_data[index] = np.concatenate([prev_data[index], value])
+        return prev_data
+
+    @staticmethod
+    def get_best_match(year, datasets):
+        """Find the best dataset to avoid duplicity"""
+        year_full_regex = re.compile(fr'.*[^\d\-]-?{year}.zip')
+        highest_month = 0
+        dataset_name = ''
+        month_regex = re.compile(fr'.*(\d\d)-{year}.zip')
+        for dataset in datasets:
+            if year_full_regex.match(dataset):
+                return dataset
+            match = month_regex.search(dataset)
+            if match:
+                month = int(match.group(1))
+                if month > highest_month:
+                    highest_month = month
+                    dataset_name = dataset
+        if dataset_name == '':
+            raise ValueError(f'Could not find valid dataset for year {year}')
+        return dataset_name
+
     """Public methods"""
 
     def download_data(self):
@@ -121,12 +155,12 @@ class DataDownloader:
         datasets = self.non_duplicate_datasets or self.__get_non_duplicate_datasets()
         parsed_data = [np.ndarray(shape=(0,), dtype=item['d_type']) for item in self.csv_headers]
         for dataset in datasets:
-            with ZipFile(f'{self.folder}/{dataset}') as archive:
+            with ZipFile(path.join(self.folder, dataset)) as archive:
                 try:
                     with archive.open(self.region_files[region], 'r') as file:
                         parsed_data_to_merge = self.__parse_csv_file(file)
                         parsed_data_to_merge[-1][:] = region
-                        parsed_data = concat_np_data_list(parsed_data, parsed_data_to_merge)
+                        parsed_data = DataDownloader.concat_np_data_list(parsed_data, parsed_data_to_merge)
                 except KeyError:
                     raise KeyError(f'Provided region key: {region}, does not exist.')
         return [item['label'] for item in self.csv_headers], parsed_data
@@ -150,7 +184,7 @@ class DataDownloader:
                 continue
             if region in cached_regions:
                 # we read content of cache file and store it to the self.parsed_data
-                with gzip.open(f'{self.folder}/{cached_region_files[cached_regions.index(region)]}',
+                with gzip.open(path.join(self.folder, cached_region_files[cached_regions.index(region)]),
                                'rb') as cache_file:
                     data = pickle.load(cache_file)
                     self.__region_processed(region, data)
@@ -165,7 +199,7 @@ class DataDownloader:
     def __get_existing_cache_files(self):
         """Get all cache names and corresponding regions available in cwd"""
         files_in_directory = listdir(self.folder)
-        cache_regex = re.compile(self.cache_filename.replace('{}', r'(\w{3})'))
+        cache_regex = re.compile(self.cache_filename.format(r'(\w{3})'))
         file_names = []
         regions = []
         for file in files_in_directory:
@@ -199,7 +233,7 @@ class DataDownloader:
             labels, _ = self.parsed_data[regions[0]]
             values = None
             for region in regions:
-                values = concat_np_data_list(values, self.parsed_data[region][1])
+                values = DataDownloader.concat_np_data_list(values, self.parsed_data[region][1])
             return labels, values
         return [], []
 
@@ -208,27 +242,8 @@ class DataDownloader:
         datasets = self.__get_existing_datasets()
         years = set([re.search(r'(\d{4}).zip', dataset).group(1) for dataset in datasets])
 
-        def get_best_match(year):
-            """Find the best dataset to avoid duplicity"""
-            year_full_regex = re.compile(fr'.*[^\d\-]-?{year}.zip')
-            highest_month = 0
-            dataset_name = ''
-            month_regex = re.compile(fr'.*(\d\d)-{year}.zip')
-            for dataset in datasets:
-                if year_full_regex.match(dataset):
-                    return dataset
-                match = month_regex.search(dataset)
-                if match:
-                    month = int(match.group(1))
-                    if month > highest_month:
-                        highest_month = month
-                        dataset_name = dataset
-            if dataset_name == '':
-                raise ValueError(f'Could not find valid dataset for year {year}')
-            return dataset_name
-
         # set it to attribute to avoid redoing same piece of code
-        self.non_duplicate_datasets = [get_best_match(year) for year in years]
+        self.non_duplicate_datasets = [DataDownloader.get_best_match(year, datasets) for year in years]
         return self.non_duplicate_datasets
 
     def __download_missing_file(self, file_path, file_name):
@@ -239,9 +254,9 @@ class DataDownloader:
             raise ConnectionError(f'Could not fetch {self.url}{file_path}')
         else:
             # write to output file in chunks for faster
-            with open(f'{self.folder}/{file_name}', 'wb+') as fd:
+            with open(f'{self.folder}/{file_name}', 'wb+') as file:
                 for chunk in response.iter_content(chunk_size=128):
-                    fd.write(chunk)
+                    file.write(chunk)
 
     def __download_missing_files(self):
         """Detect any missing file in cwd"""
@@ -254,14 +269,14 @@ class DataDownloader:
         for item in file_paths:
             file_name = re_name.search(item).group(0)
             if file_name not in existing_file_names:
-                self.__download_missing_file(f'{self.url}{item}', file_name)
+                self.__download_missing_file(item, file_name)
 
     def __parse_csv_file(self, file):
         """Parse single csv file and return list with numpy arrays"""
         number_of_rows = sum(1 for _ in file)
         parsed_data = [np.empty(shape=number_of_rows, dtype=item['d_type']) for item in self.csv_headers]
         file.seek(0)
-        csv_reader = reader(TextIOWrapper(file, "ISO-8859-1"), delimiter=';', quotechar='"')
+        csv_reader = reader(TextIOWrapper(file, "Windows-1250"), delimiter=';', quotechar='"')
         for index, row in enumerate(csv_reader):
             for index_val, value in enumerate(row):
                 try:
@@ -273,11 +288,22 @@ class DataDownloader:
     def __process_region(self, region):
         """Parse region, create cache file and copy data to attribute self.parsedData"""
         data = self.parse_region_data(region)
-        with gzip.open(f'{self.folder}/{self.cache_filename.replace("{}", region)}', 'wb') as f:
-            pickle.dump(data, f)
+        with gzip.open(path.join(self.folder, self.cache_filename.format(region)), 'wb') as file:
+            pickle.dump(data, file)
             self.__region_processed(region, data)
 
     def __region_processed(self, region, data):
         """Add data to attributes"""
         self.parsed_data[region] = data
         self.parsed_regions.append(region)
+
+
+if __name__ == '__main__':
+    print('Script was started as main')
+    downloader = DataDownloader()
+    regions_to_parse = ['MSK', 'PHA', 'KVK']
+    print(f'Parsing data for regions: {regions_to_parse}')
+    data_as_list = downloader.get_list(['MSK', 'PHA', 'KVK'])
+    print('Data successfully parsed')
+    print(f'Found {len(data_as_list[1][0])} records')
+    print(f'Headers are: {(data_as_list[0])}')
