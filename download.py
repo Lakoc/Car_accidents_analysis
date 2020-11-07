@@ -1,13 +1,14 @@
-import requests
-import re
 import numpy as np
+import pickle
+import re
+
+from gzip import open as open_gzip
+from requests import get as get_request
 from os import path, makedirs, listdir
 from bs4 import BeautifulSoup
 from zipfile import ZipFile
 from csv import reader
 from io import TextIOWrapper
-import pickle
-import gzip
 
 
 class DataDownloader:
@@ -73,8 +74,8 @@ class DataDownloader:
             "LBK": "18.csv",
             "KVK": "19.csv",
         }
-        self.csv_headers = [{"label": "p1", "d_type": "<U12"}, {"label": "p36", "d_type": "i1"},
-                            {"label": "p37", "d_type": "i1"}, {"label": "p2a", "d_type": "datetime64[D]"},
+        self.csv_headers = [{"label": "p1", "d_type": "i8"}, {"label": "p36", "d_type": "i1"},
+                            {"label": "p37", "d_type": "i4"}, {"label": "p2a", "d_type": "datetime64[D]"},
                             {"label": "weekday(p2a)", "d_type": "i1"}, {"label": "p2b", "d_type": "<U4"},
                             {"label": "p6", "d_type": "i1"}, {"label": "p7", "d_type": "i1"},
                             {"label": "p8", "d_type": "i1"}, {"label": "p9", "d_type": "i1"},
@@ -93,12 +94,12 @@ class DataDownloader:
                             {"label": "p47", "d_type": "i1"}, {"label": "p48a", "d_type": "i1"},
                             {"label": "p49", "d_type": "i1"}, {"label": "p50a", "d_type": "i1"},
                             {"label": "p50b", "d_type": "i1"}, {"label": "p51", "d_type": "i1"},
-                            {"label": "p52", "d_type": "i1"}, {"label": "p53", "d_type": "i1"},
+                            {"label": "p52", "d_type": "i1"}, {"label": "p53", "d_type": "i4"},
                             {"label": "p55a", "d_type": "i1"}, {"label": "p57", "d_type": "i1"},
                             {"label": "p58", "d_type": "i1"},
                             {"label": "a", "d_type": "i1"}, {"label": "b", "d_type": "i1"},
-                            {"label": "d", "d_type": "i1"}, {"label": "e", "d_type": "f8"},
-                            {"label": "f", "d_type": "f8"}, {"label": "g", "d_type": "i1"},
+                            {"label": "d", "d_type": "f8"}, {"label": "e", "d_type": "f8"},
+                            {"label": "f", "d_type": "i1"}, {"label": "g", "d_type": "i1"},
                             {"label": "h", "d_type": "i1"}, {"label": "i", "d_type": "i1"},
                             {"label": "j", "d_type": "i1"}, {"label": "k", "d_type": "i1"},
                             {"label": "l", "d_type": "i1"}, {"label": "n", "d_type": "i1"},
@@ -143,7 +144,7 @@ class DataDownloader:
     def download_data(self):
         """Download all datasets available at specified url"""
         # regex to match only zip files
-        re_name = re.compile(r'[^/]*\.zip')
+        re_name = re.compile(r'[^/]+\.zip')
         file_paths = self.__get_file_paths_from_url()
         for file_path in file_paths:
             file_name = re_name.search(file_path).group(0)
@@ -184,7 +185,7 @@ class DataDownloader:
                 continue
             if region in cached_regions:
                 # we read content of cache file and store it to the self.parsed_data
-                with gzip.open(path.join(self.folder, cached_region_files[cached_regions.index(region)]),
+                with open_gzip(path.join(self.folder, cached_region_files[cached_regions.index(region)]),
                                'rb') as cache_file:
                     data = pickle.load(cache_file)
                     self.__region_processed(region, data)
@@ -216,16 +217,20 @@ class DataDownloader:
 
     def __get_file_paths_from_url(self):
         """Get all dataset paths on specified url"""
-        response = requests.get(self.url, headers=self.headers)
+        response = get_request(self.url, headers=self.headers)
         if response.status_code != 200:
             raise ConnectionError(f'Could not fetch url "{self.url}"')
 
         # get html and parse all a tags with .zip files
         response_html = response.text
         soup = BeautifulSoup(response_html, "html.parser")
-        a_tags = soup.table.find_all('a', {'href': re.compile(r'\.zip')})
-        # return only links without a tags
-        return [a_tag.attrs["href"] for a_tag in a_tags]
+        valid_dataset_re = re.compile(r'(\d{4})\.zip')
+        a_tags = soup.table.find_all('a', {'href': valid_dataset_re})
+        dataset_paths = [a_tag.attrs["href"] for a_tag in a_tags]
+
+        # get unique years and find best matching files
+        years = set([valid_dataset_re.search(dataset).group(1) for dataset in dataset_paths])
+        return [DataDownloader.get_best_match(year, dataset_paths) for year in years]
 
     def __get_list_from_parsed_data(self, regions):
         """Merge dictionary values to one output array"""
@@ -248,7 +253,7 @@ class DataDownloader:
 
     def __download_missing_file(self, file_path, file_name):
         """ Download data in stream mode for faster processing"""
-        response = requests.get(f'{self.url}{file_path}', headers=self.headers, stream=True)
+        response = get_request(f'{self.url}{file_path}', headers=self.headers, stream=True)
         # we check for status code before setting data
         if response.status_code != 200:
             raise ConnectionError(f'Could not fetch {self.url}{file_path}')
@@ -261,7 +266,7 @@ class DataDownloader:
     def __download_missing_files(self):
         """Detect any missing file in cwd"""
         # regex to match only zip files
-        re_name = re.compile(r'[^/]*\.zip')
+        re_name = re.compile(r'[^/]+\.zip')
         # get all available dataset paths in table on specified url and theirs names
         file_paths = self.__get_file_paths_from_url()
         # get all name of files in our cwd
@@ -288,7 +293,7 @@ class DataDownloader:
     def __process_region(self, region):
         """Parse region, create cache file and copy data to attribute self.parsedData"""
         data = self.parse_region_data(region)
-        with gzip.open(path.join(self.folder, self.cache_filename.format(region)), 'wb') as file:
+        with open_gzip(path.join(self.folder, self.cache_filename.format(region)), 'wb') as file:
             pickle.dump(data, file)
             self.__region_processed(region, data)
 
@@ -301,9 +306,9 @@ class DataDownloader:
 if __name__ == '__main__':
     print('Script was started as main')
     downloader = DataDownloader()
-    regions_to_parse = ['MSK', 'PHA', 'KVK']
+    regions_to_parse = ['MSK', 'PHA', 'STC']
     print(f'Parsing data for regions: {regions_to_parse}')
-    data_as_list = downloader.get_list(['MSK', 'PHA', 'KVK'])
+    data_as_list = downloader.get_list(regions_to_parse)
     print('Data successfully parsed')
     print(f'Found {len(data_as_list[1][0])} records')
     print(f'Headers are: {(data_as_list[0])}')
