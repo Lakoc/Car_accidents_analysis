@@ -88,7 +88,8 @@ if __name__ == '__main__':
     parser.add_argument('--show_figure', action="store_true",
                         help='enables plotting')
     args = parser.parse_args()
-    regions_to_parse = ['MSK', 'PHA', 'STC']
+    regions_to_parse = ['HKK', 'JHC', 'JHM', 'KVK', 'LBK', 'MSK', 'OLK', 'PAK', 'PHA', 'PLK', 'STC', 'ULK', 'VYS',
+                        'ZLK']
     print(f'Parsing data for regions: {regions_to_parse}...')
     parsed_data = DataDownloader().get_list(regions_to_parse)
     print(f'Data were successfully parsed.')
