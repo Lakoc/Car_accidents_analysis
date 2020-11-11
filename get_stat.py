@@ -87,10 +87,12 @@ if __name__ == '__main__':
                         help='path where to save graph outputs')
     parser.add_argument('--show_figure', action="store_true",
                         help='enables plotting')
+    # In case that show_figure should accept values use next line of code and check value of equality with 'True'
+    # parser.add_argument('--show_figure', nargs='?', const='True', type=str, default='False', help='enables plotting')
     args = parser.parse_args()
     regions_to_parse = ['HKK', 'JHC', 'JHM', 'KVK', 'LBK', 'MSK', 'OLK', 'PAK', 'PHA', 'PLK', 'STC', 'ULK', 'VYS',
                         'ZLK']
     print(f'Parsing data for regions: {regions_to_parse}...')
     parsed_data = DataDownloader().get_list(regions_to_parse)
-    print(f'Data were successfully parsed.')
+    print(f'Data were successfully parsed. Preparing plots...')
     plot_stat(parsed_data, args.fig_location, args.show_figure)
