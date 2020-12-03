@@ -18,7 +18,7 @@ def _check_if_path_exist(filename):
         raise OSError(f'Could not find: {filename}')
 
 
-def _save_show_fig(fig_location: str, show_figure: bool, fig: sns.FacetGrid):
+def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
     if fig_location:
         folder = re.match(r'(.+/).+', fig_location)
         if folder:
@@ -58,8 +58,21 @@ def _optimize_dataframe_size(dataframe: pd.DataFrame) -> pd.DataFrame:
     # categorize provided columns
     for col in columns_to_categorize:
         dataframe[col] = dataframe[col].astype('category')
-        _print_dataframe_size('', dataframe)
     return dataframe
+
+
+def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str):
+    sns.barplot(x=data.index, y=data.value, data=data, ax=ax, palette="flare",
+                order=data.sort_values('value', ascending=False).index)
+    ax.tick_params(left=False, bottom=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_ylabel(r"$\it{Počet}$", fontsize=8)
+    ax.set_xlabel(r"$\it{Region}$", fontsize=8)
+    ax.set_title(label, fontsize=12)
+
+    for index, (_, row) in enumerate(data.sort_values('value', ascending=False).iterrows()):
+        ax.text(index, row.value, row.value, color='black', ha="center")
 
 
 # Ukol 1: nacteni dat
@@ -86,7 +99,22 @@ def get_dataframe(filename: str = "accidents.pkl.gz", verbose: bool = False) -> 
 # Ukol 2: následky nehod v jednotlivých regionech
 def plot_conseq(df: pd.DataFrame, fig_location: str = None,
                 show_figure: bool = False):
-    pass
+    columns = ['p13a', 'p13b', 'p13c']
+    labels = {'p13a': 'Počet umrtí', 'p13b': 'Počet těžkých zranění', 'p13c': 'Počet lehkých zranění',
+              'all': 'Celkem nehod'}
+    df_melted = pd.melt(df, id_vars=['region'], value_vars=columns)
+    df_groups = df_melted.groupby(['variable', 'region']).sum()
+    accidents_count = df['region'].value_counts()
+
+    # Set up the matplotlib figure
+    fig, axes = plt.subplots(4, 1, figsize=(9, 9))
+    for index, column in enumerate(columns):
+        data = df_groups.query(f'variable == "{column}"').droplevel('variable')
+        _set_axis_content(axes[index], data, labels[column])
+    _set_axis_content(axes[3], accidents_count.to_frame().rename(columns={'region': 'value'}), labels['all'])
+    fig.suptitle('Nehody v regionech ČR', fontsize=20, fontweight="bold")
+    fig.tight_layout()
+    _save_show_fig(fig_location, show_figure, fig)
 
 
 # Ukol3: příčina nehody a škoda
