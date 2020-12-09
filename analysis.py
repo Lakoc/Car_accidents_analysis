@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.8
 # coding=utf-8
 
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, ticker
 import pandas as pd
 import seaborn as sns
 import numpy as np
@@ -135,24 +135,11 @@ def _clean_values(df: pd.DataFrame) -> pd.DataFrame:
     return df_cleaned[df_cleaned['p53'] >= 0]
 
 
-# def _plot_sub_damage(ax: plt.axis, data: pd.DataFrame, label: str):
-#     """Plot statistics for selected region"""
-#     sns.barplot(x='p53', y='size', hue='p12', data=data, ax=ax)
-#     ax.set_ylabel(r"$\it{Počet}$", fontsize=8)
-#     ax.grid(axis='y', color='black', linewidth=.3, alpha=.5)
-#     ax.set_xlabel('Škoda [tisíc Kč]', fontsize=8)
-#     ax.set_title(label, fontsize=12)
-#     ax.set_yscale("log")
-#     ax.spines["top"].set_visible(False)
-#     ax.spines["right"].set_visible(False)
-#     ax.legend([], [], frameon=False)
-
-
 # Ukol3: příčina nehody a škoda
 def plot_damage(df: pd.DataFrame, fig_location: str = None,
                 show_figure: bool = False):
     """Plot graphs showing damage consequences of group of accidents in Czech regions"""
-    regions = ['JHM', 'HKK', 'PLK', 'PHA']
+    regions = ['JHM', 'HKK', 'PLK', 'MSK']
     labels_cause = ['nezaviněná řidičem', 'nepřiměřená rychlost jízdy', 'nesprávné předjíždění',
                     'nedání přednosti v jízdě',
                     'nesprávný způsob jízdy', 'technická závada vozidla']
@@ -190,7 +177,8 @@ def plot_damage(df: pd.DataFrame, fig_location: str = None,
 # Ukol 4: povrch vozovky
 def plot_surface(df: pd.DataFrame, fig_location: str = None,
                  show_figure: bool = False):
-    regions = ['JHM', 'HKK', 'PLK', 'PHA']
+    """Plot graphs showing accidents according to road condition in Czech regions"""
+    regions = ['JHM', 'HKK', 'PLK', 'MSK']
     columns = ['region', 'date', 'p16']
     labels = {0: 'jiný stav', 1: 'suchý neznečištěný', 2: 'suchý znečištěný', 3: 'mokrý', 4: 'bláto',
               5: 'náledí, ujetý sníh - posypané', 6: 'náledí, ujetý sníh - neposypané', 7: 'rozlitý olej, nafta apod.',
@@ -208,10 +196,24 @@ def plot_surface(df: pd.DataFrame, fig_location: str = None,
     df_surface.rename(columns=labels, inplace=True)
 
     # group by region and month and sum values
-    df_grouped = df_surface.groupby(
-        [df_surface.index.get_level_values('region'), df_surface.index.get_level_values('date').to_period('M')]).sum()
+    df_grouped = df_surface.groupby([pd.Grouper(level='region'),
+            pd.Grouper(level='date', freq='M')]
+          ).sum()
     df_grouped = df_grouped.stack()
-    pass
+    df_grouped = df_grouped.reset_index()
+
+    # plot values
+    sns.set_style("darkgrid")
+    g = sns.relplot(kind="line", data=df_grouped, x="date", y=df_grouped[0], hue="p16",
+                    col="region", col_wrap=2)
+    g._legend.set_title('Stav vozovky')
+    g.set_ylabels('Počet nehod')
+    g.set_xlabels('Datum vzniku nehody [rok-měsíc]')
+    g.set_titles("{col_name}")
+    g.fig.suptitle('Nehody v regionech ČR', fontsize=20, fontweight="bold")
+
+    g.tight_layout()
+    _save_show_fig(fig_location, show_figure, g.fig)
 
 
 if __name__ == "__main__":
@@ -220,6 +222,6 @@ if __name__ == "__main__":
     # skript nebude pri testovani pousten primo, ale budou volany konkreni ¨
     # funkce.
     df = get_dataframe("accidents.pkl.gz")
-    # plot_conseq(df, fig_location="01_nasledky.png", show_figure=True)
+    plot_conseq(df, "01_nasledky.png", True)
     plot_damage(df, "02_priciny.png", True)
-    # plot_surface(df, "03_stav.png", True)
+    plot_surface(df, "03_stav.png", True)
