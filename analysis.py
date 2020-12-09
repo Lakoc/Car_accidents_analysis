@@ -7,11 +7,14 @@ import seaborn as sns
 import numpy as np
 import os
 import re
+
+
 # muzete pridat libovolnou zakladni knihovnu ci knihovnu predstavenou na prednaskach
 # dalsi knihovny pak na dotaz
 
 
 def _check_if_path_exist(filename):
+    """Check for existence of path"""
     if not os.path.exists(filename):
         raise OSError(f'Could not find: {filename}')
 
@@ -30,7 +33,7 @@ def _optimize_dataframe_size(dataframe: pd.DataFrame) -> pd.DataFrame:
                              'p14', 'p15', 'p16', 'p17', 'p18', 'p19', 'p20', 'p21', 'p22', 'p23', 'p24', 'p27', 'p28',
                              'p34', 'p35', 'p39', 'p44', 'p45a', 'p47', 'p48a', 'p49', 'p50a', 'p50b', 'p51', 'p52',
                              'p53', 'p55a', 'p57', 'p58', 'h', 'i', 'j', 'k', 'l', 'n', 'o', 'p', 'q', 'r', 's', 't',
-                             'p5a', 'date']
+                             'p5a']
     # add date to dataframe
     dates = pd.to_datetime(dataframe['p2a'])
     dataframe['date'] = dates
@@ -66,6 +69,7 @@ def get_dataframe(filename: str = "accidents.pkl.gz", verbose: bool = False) -> 
 
 
 def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str):
+    """Create modified barplot for column of dataset"""
     sns.barplot(x=data.index, y=data.value, data=data, ax=ax, palette="flare",
                 order=data.sort_values('value', ascending=False).index)
     ax.tick_params(bottom=False)
@@ -80,6 +84,7 @@ def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str):
 
 
 def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
+    """Show and save file according to provided params"""
     if fig_location:
         folder = re.match(r'(.+/).+', fig_location)
         if folder:
@@ -97,43 +102,56 @@ def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
 # Ukol 2: následky nehod v jednotlivých regionech
 def plot_conseq(df: pd.DataFrame, fig_location: str = None,
                 show_figure: bool = False):
+    """Plot graphs showing consequences of accidents in Czech regions"""
     columns = ['p13a', 'p13b', 'p13c']
     labels = {'p13a': 'Počet umrtí', 'p13b': 'Počet těžkých zranění', 'p13c': 'Počet lehkých zranění',
               'all': 'Celkem nehod'}
+
+    # aggregate data
     df_melted = pd.melt(df, id_vars=['region'], value_vars=columns)
     df_groups = df_melted.groupby(['variable', 'region']).sum()
     accidents_count = df['region'].value_counts()
 
     # Set up the matplotlib figure
     fig, axes = plt.subplots(4, 1, figsize=(9, 9))
+
     for index, column in enumerate(columns):
         data = df_groups.query(f'variable == "{column}"').droplevel('variable')
         _set_axis_content(axes[index], data, labels[column])
     _set_axis_content(axes[3], accidents_count.to_frame().rename(columns={'region': 'value'}), labels['all'])
+
     fig.suptitle('Nehody v regionech ČR', fontsize=20, fontweight="bold")
     fig.tight_layout()
     _save_show_fig(fig_location, show_figure, fig)
 
 
 def _clean_values(df: pd.DataFrame) -> pd.DataFrame:
-    df = df[(df['p12'] == 100) | ((df['p12'] >= 201) & (df['p12'] <= 209)) | (
+    """Clean dataframe from unexpected values"""
+    df_cleaned = df[(df['p12'] == 100) | ((df['p12'] >= 201) & (df['p12'] <= 209)) | (
             (df['p12'] >= 301) & (df['p12'] <= 311)) | (
-                    (df['p12'] >= 401) & (df['p12'] <= 414)) | (
-                    (df['p12'] >= 501) & (df['p12'] <= 516)) | (
-                    (df['p12'] >= 601) & (df['p12'] <= 615))]
-    return df[df['p53'] >= 0]
+                            (df['p12'] >= 401) & (df['p12'] <= 414)) | (
+                            (df['p12'] >= 501) & (df['p12'] <= 516)) | (
+                            (df['p12'] >= 601) & (df['p12'] <= 615))]
+    return df_cleaned[df_cleaned['p53'] >= 0]
 
 
-def _plot_sub_damage(ax: plt.axis, data: pd.DataFrame, label: str):
-    sns.barplot(x='p53', y='size', hue='p12', data=data, ax=ax)
-    ax.set_yscale("log")
-    ax.legend([], [], frameon=False)
+# def _plot_sub_damage(ax: plt.axis, data: pd.DataFrame, label: str):
+#     """Plot statistics for selected region"""
+#     sns.barplot(x='p53', y='size', hue='p12', data=data, ax=ax)
+#     ax.set_ylabel(r"$\it{Počet}$", fontsize=8)
+#     ax.grid(axis='y', color='black', linewidth=.3, alpha=.5)
+#     ax.set_xlabel('Škoda [tisíc Kč]', fontsize=8)
+#     ax.set_title(label, fontsize=12)
+#     ax.set_yscale("log")
+#     ax.spines["top"].set_visible(False)
+#     ax.spines["right"].set_visible(False)
+#     ax.legend([], [], frameon=False)
 
 
 # Ukol3: příčina nehody a škoda
 def plot_damage(df: pd.DataFrame, fig_location: str = None,
                 show_figure: bool = False):
-    """TODO"""
+    """Plot graphs showing damage consequences of group of accidents in Czech regions"""
     regions = ['JHM', 'HKK', 'PLK', 'PHA']
     labels_cause = ['nezaviněná řidičem', 'nepřiměřená rychlost jízdy', 'nesprávné předjíždění',
                     'nedání přednosti v jízdě',
@@ -150,27 +168,49 @@ def plot_damage(df: pd.DataFrame, fig_location: str = None,
     df_regions = _clean_values(df_regions)
 
     df_regions['p12'] = pd.cut(df_regions['p12'], [99, 199, 299, 399, 499, 599, 699], labels=labels_cause)
-    df_regions['p53'] = pd.cut(df_regions['p53'], bins=[-np.inf, 50, 200, 500, 1000, np.inf],
+    df_regions['p53'] = pd.cut(df_regions['p53'], bins=[-np.inf, 500, 2000, 5000, 10000, np.inf],
                                labels=labels_damage)
     df_regions = df_regions.groupby(columns, as_index=False).size()
 
-    fig, axes = plt.subplots(2, 2, figsize=(9, 9))
-    for index, region in enumerate(regions):
-        ax = axes.flatten()[index]
-        data = df_regions[df_regions['region'] == region]
-        _plot_sub_damage(ax, data, region)
-
-    handles, labels = axes[0][0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='center right')
-
-    fig.suptitle('Nehody v regionech ČR', fontsize=20, fontweight="bold")
-    fig.tight_layout()
-    _save_show_fig(fig_location, show_figure, fig)
+    # plot values
+    sns.set_style("darkgrid")
+    g = sns.catplot(x="p53", y="size", col="region", hue='p12',
+                    data=df_regions, col_wrap=2,
+                    kind="bar")
+    g._legend.set_title('Příčina nehody')
+    g.set(yscale="log")
+    g.set_ylabels('Počet')
+    g.set_xlabels('Škoda [tisíc Kč]')
+    g.set_titles("{col_name}")
+    g.fig.suptitle('Nehody v regionech ČR', fontsize=20, fontweight="bold")
+    g.tight_layout()
+    _save_show_fig(fig_location, show_figure, g.fig)
 
 
 # Ukol 4: povrch vozovky
 def plot_surface(df: pd.DataFrame, fig_location: str = None,
                  show_figure: bool = False):
+    regions = ['JHM', 'HKK', 'PLK', 'PHA']
+    columns = ['region', 'date', 'p16']
+    labels = {0: 'jiný stav', 1: 'suchý neznečištěný', 2: 'suchý znečištěný', 3: 'mokrý', 4: 'bláto',
+              5: 'náledí, ujetý sníh - posypané', 6: 'náledí, ujetý sníh - neposypané', 7: 'rozlitý olej, nafta apod.',
+              8: 'souvislý sníh', 9: 'náhlá změna stavu'}
+
+    # filter only needed values
+    df_surface = df[df['region'].isin(regions)][columns]
+
+    # clean from unexpected values
+    df_surface['p16'] = df_surface['p16'].astype('int')
+    df_surface = df_surface[(df_surface['p16'] >= 0) & (df_surface['p16'] <= 9)]
+
+    # create crosstab and rename columns
+    df_surface = pd.crosstab([df_surface['region'], df_surface['date']], [df_surface['p16']])
+    df_surface.rename(columns=labels, inplace=True)
+
+    # group by region and month and sum values
+    df_grouped = df_surface.groupby(
+        [df_surface.index.get_level_values('region'), df_surface.index.get_level_values('date').to_period('M')]).sum()
+    df_grouped = df_grouped.stack()
     pass
 
 
@@ -182,4 +222,4 @@ if __name__ == "__main__":
     df = get_dataframe("accidents.pkl.gz")
     # plot_conseq(df, fig_location="01_nasledky.png", show_figure=True)
     plot_damage(df, "02_priciny.png", True)
-    plot_surface(df, "03_stav.png", True)
+    # plot_surface(df, "03_stav.png", True)
