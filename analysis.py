@@ -68,19 +68,16 @@ def get_dataframe(filename: str = "accidents.pkl.gz", verbose: bool = False) -> 
     return dataframe
 
 
-def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str):
+def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str, order: pd.Index):
     """Create modified barplot for column of dataset"""
     sns.barplot(x=data.index, y=data.value, data=data, ax=ax, palette="flare",
-                order=data.sort_values('value', ascending=False).index)
+                order=order)
     ax.tick_params(bottom=False)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.set_ylabel(r"$\it{Počet}$", fontsize=8)
     ax.set_xlabel(r"$\it{Region}$", fontsize=8)
     ax.set_title(label, fontsize=12)
-
-    for index, (_, row) in enumerate(data.sort_values('value', ascending=False).iterrows()):
-        ax.text(index, row.value, row.value, color='black', ha="center")
 
 
 def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
@@ -111,14 +108,15 @@ def plot_conseq(df: pd.DataFrame, fig_location: str = None,
     df_melted = pd.melt(df, id_vars=['region'], value_vars=columns)
     df_groups = df_melted.groupby(['variable', 'region']).sum()
     accidents_count = df['region'].value_counts()
+    order = accidents_count.sort_values(ascending=False).index
 
     # Set up the matplotlib figure
     fig, axes = plt.subplots(4, 1, figsize=(9, 9))
 
     for index, column in enumerate(columns):
         data = df_groups.query(f'variable == "{column}"').droplevel('variable')
-        _set_axis_content(axes[index], data, labels[column])
-    _set_axis_content(axes[3], accidents_count.to_frame().rename(columns={'region': 'value'}), labels['all'])
+        _set_axis_content(axes[index], data, labels[column], order)
+    _set_axis_content(axes[3], accidents_count.to_frame().rename(columns={'region': 'value'}), labels['all'], order)
 
     fig.suptitle('Nehody v regionech ČR', fontsize=20, fontweight="bold")
     fig.tight_layout()
@@ -197,8 +195,8 @@ def plot_surface(df: pd.DataFrame, fig_location: str = None,
 
     # group by region and month and sum values
     df_grouped = df_surface.groupby([pd.Grouper(level='region'),
-            pd.Grouper(level='date', freq='M')]
-          ).sum()
+                                     pd.Grouper(level='date', freq='M')]
+                                    ).sum()
     df_grouped = df_grouped.stack()
     df_grouped = df_grouped.reset_index()
 
@@ -223,5 +221,5 @@ if __name__ == "__main__":
     # funkce.
     df = get_dataframe("accidents.pkl.gz")
     plot_conseq(df, "01_nasledky.png", True)
-    plot_damage(df, "02_priciny.png", True)
-    plot_surface(df, "03_stav.png", True)
+    # plot_damage(df, "02_priciny.png", True)
+    # plot_surface(df, "03_stav.png", True)
