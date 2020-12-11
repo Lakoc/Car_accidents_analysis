@@ -78,7 +78,8 @@ def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str, order: pd.In
     ax.set_ylabel(r"$\it{Počet}$", fontsize=8)
     ax.set_xlabel(r"$\it{Region}$", fontsize=8)
     ax.set_title(label, fontsize=12)
-
+    ax.set_axisbelow(True)
+    ax.grid(color='k', linewidth=0.3, axis='y')
 
 def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
     """Show and save file according to provided params"""
