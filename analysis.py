@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.8
 # coding=utf-8
 
-from matplotlib import pyplot as plt, ticker
+from matplotlib import pyplot as plt
 import pandas as pd
 import seaborn as sns
 import numpy as np
@@ -80,6 +80,7 @@ def _set_axis_content(ax: plt.axis, data: pd.DataFrame, label: str, order: pd.In
     ax.set_title(label, fontsize=12)
     ax.set_axisbelow(True)
     ax.grid(color='k', linewidth=0.3, axis='y')
+
 
 def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
     """Show and save file according to provided params"""
@@ -222,5 +223,5 @@ if __name__ == "__main__":
     # funkce.
     df = get_dataframe("accidents.pkl.gz")
     plot_conseq(df, "01_nasledky.png", True)
-    # plot_damage(df, "02_priciny.png", True)
-    # plot_surface(df, "03_stav.png", True)
+    plot_damage(df, "02_priciny.png", True)
+    plot_surface(df, "03_stav.png", True)
