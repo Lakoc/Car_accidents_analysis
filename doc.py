@@ -127,5 +127,5 @@ def print_stats(df: pd.DataFrame):
 if __name__ == "__main__":
     df_accidents = get_dataset("accidents.pkl.gz")
     print(f'Number of accidents without drugs or alcohol: {df_accidents.shape[0]}\n')
-    plot_car_type(df_accidents, 'car_brand_accident.pdf', True)
+    plot_car_type(df_accidents, 'fig.pdf', False)
     create_table_by_year(df_accidents)
