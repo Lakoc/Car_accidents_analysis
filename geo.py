@@ -7,9 +7,8 @@ import contextily as ctx
 import sklearn.cluster
 import numpy as np
 
-# muzeze pridat vlastni knihovny
-from shapely.geometry import Point
 
+# muzeze pridat vlastni knihovny
 
 def _save_show_fig(fig_location: str, show_figure: bool, fig: plt.Figure):
     """Show and save file according to provided params"""
